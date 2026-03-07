@@ -275,6 +275,9 @@ fn gen_block<B: ToTokens>(
                 FormatMode::Debug => Some(quote!(
                     ::tracing::event!(target: #target, #level_tokens, error = ?e)
                 )),
+                FormatMode::Redact => Some(quote!(
+                    ::tracing::event!(target: #target, #level_tokens, return = "[redacted]")
+                )),
             }
         }
         _ => None,
@@ -289,6 +292,9 @@ fn gen_block<B: ToTokens>(
                 )),
                 FormatMode::Default | FormatMode::Debug => Some(quote!(
                     ::tracing::event!(target: #target, #level_tokens, return = ?x)
+                )),
+                FormatMode::Redact => Some(quote!(
+                    ::tracing::event!(target: #target, #level_tokens, return = "[redacted]")
                 )),
             }
         }

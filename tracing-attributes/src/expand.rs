@@ -356,7 +356,7 @@ fn gen_block<B: ToTokens>(
         });
         let latency_record = args.latency.then(|| {
             quote!(
-                __tracing_attr_span.record(
+                ::tracing::Span::current().record(
                     "latency",
                     __tracing_attr_latency.elapsed().as_millis() as u64,
                 );
@@ -365,7 +365,7 @@ fn gen_block<B: ToTokens>(
 
         return quote!(
             let __tracing_attr_span = #span;
-            let __tracing_instrument_future = async {
+            let __tracing_instrument_future = async move {
                 #latency_inst
                 let __tracing_attr_result = #mk_fut .await;
                 #latency_record

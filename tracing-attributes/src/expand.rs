@@ -251,7 +251,15 @@ fn gen_block<B: ToTokens>(
         }
 
         let custom_fields = &args.fields;
-        let latency_field = args.latency.then(|| quote!(latency = ::tracing::field::Empty,));
+
+        // Collect all extra fields (custom + latency) with proper comma separation
+        let mut extra_fields = Vec::new();
+        if let Some(cf) = custom_fields {
+            extra_fields.push(cf.to_token_stream());
+        }
+        if args.latency {
+            extra_fields.push(quote!(latency = ::tracing::field::Empty));
+        }
 
         quote!(::tracing::span!(
             target: #target,
@@ -259,8 +267,7 @@ fn gen_block<B: ToTokens>(
             #level,
             #span_name,
             #(#quoted_fields,)*
-            #custom_fields
-            #latency_field
+            #(#extra_fields,)*
         ))
     })();
 

@@ -243,7 +243,9 @@ fn gen_block<B: ToTokens>(
         }
 
         let custom_fields = &args.fields;
-        let latency_field = args.latency.then(|| quote!(latency = ::tracing::field::Empty,));
+        let latency_field = args
+            .latency
+            .then(|| quote!(latency = ::tracing::field::Empty,));
 
         quote!(::tracing::span!(
             target: #target,
@@ -302,9 +304,9 @@ fn gen_block<B: ToTokens>(
     // If `ret` is in args, instrument any resulting `Ok`s when the function
     // returns `Result`s, otherwise instrument any resulting values.
     if async_context {
-        let latency_inst = args.latency.then(|| {
-            quote!(let __tracing_attr_latency = ::std::time::Instant::now();)
-        });
+        let latency_inst = args
+            .latency
+            .then(|| quote!(let __tracing_attr_latency = ::std::time::Instant::now();));
         let latency_record = args.latency.then(|| {
             quote!(
                 __tracing_attr_span.record(
@@ -386,9 +388,9 @@ fn gen_block<B: ToTokens>(
         );
     }
 
-    let latency_inst = args.latency.then(|| {
-        quote!(let __tracing_attr_latency = ::std::time::Instant::now();)
-    });
+    let latency_inst = args
+        .latency
+        .then(|| quote!(let __tracing_attr_latency = ::std::time::Instant::now();));
     let latency_record = args.latency.then(|| {
         quote!(
             __tracing_attr_span.record(

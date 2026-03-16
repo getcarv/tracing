@@ -302,10 +302,27 @@ fn gen_block<B: ToTokens>(
     // If `ret` is in args, instrument any resulting `Ok`s when the function
     // returns `Result`s, otherwise instrument any resulting values.
     if async_context {
+        let latency_inst = args.latency.then(|| {
+            quote!(let __tracing_attr_latency = ::std::time::Instant::now();)
+        });
+        let latency_record = args.latency.then(|| {
+            quote!(
+                __tracing_attr_span.record(
+                    "latency",
+                    __tracing_attr_latency.elapsed().as_millis() as u64,
+                );
+            )
+        });
+
+        // Record latency BEFORE ret/err events so it appears in their log output.
+        // This matches the old TraceLatency Drop behavior where the timer was a
+        // local inside the block that dropped before events fired.
         let mk_fut = match (err_event, ret_event) {
             (Some(err_event), Some(ret_event)) => quote_spanned!(block.span()=>
                 async move {
+                    #latency_inst
                     let __match_scrutinee = async move #block.await;
+                    #latency_record
                     match  __match_scrutinee {
                         #[allow(clippy::unit_arg)]
                         Ok(x) => {
@@ -321,7 +338,10 @@ fn gen_block<B: ToTokens>(
             ),
             (Some(err_event), None) => quote_spanned!(block.span()=>
                 async move {
-                    match async move #block.await {
+                    #latency_inst
+                    let __match_scrutinee = async move #block.await;
+                    #latency_record
+                    match __match_scrutinee {
                         #[allow(clippy::unit_arg)]
                         Ok(x) => Ok(x),
                         Err(e) => {
@@ -333,36 +353,26 @@ fn gen_block<B: ToTokens>(
             ),
             (None, Some(ret_event)) => quote_spanned!(block.span()=>
                 async move {
+                    #latency_inst
                     let x = async move #block.await;
+                    #latency_record
                     #ret_event;
                     x
                 }
             ),
             (None, None) => quote_spanned!(block.span()=>
-                async move #block
+                async move {
+                    #latency_inst
+                    let __tracing_attr_result = async move #block.await;
+                    #latency_record
+                    __tracing_attr_result
+                }
             ),
         };
 
-        let latency_inst = args.latency.then(|| {
-            quote!(let __tracing_attr_latency = ::std::time::Instant::now();)
-        });
-        let latency_record = args.latency.then(|| {
-            quote!(
-                __tracing_attr_span.record(
-                    "latency",
-                    __tracing_attr_latency.elapsed().as_millis() as u64,
-                );
-            )
-        });
-
         return quote!(
             let __tracing_attr_span = #span;
-            let __tracing_instrument_future = async {
-                #latency_inst
-                let __tracing_attr_result = #mk_fut .await;
-                #latency_record
-                __tracing_attr_result
-            };
+            let __tracing_instrument_future = #mk_fut;
             if !__tracing_attr_span.is_disabled() {
                 #follows_from
                 ::tracing::Instrument::instrument(
@@ -409,11 +419,14 @@ fn gen_block<B: ToTokens>(
         #latency_inst
     );
 
+    // Record latency BEFORE ret/err events so it appears in their log output.
     match (err_event, ret_event) {
         (Some(err_event), Some(ret_event)) => quote_spanned! {block.span()=>
             #span
             #[allow(clippy::redundant_closure_call)]
-            let __tracing_attr_result = match (move || #block)() {
+            let __tracing_attr_block_result = (move || #block)();
+            #latency_record
+            let __tracing_attr_result = match __tracing_attr_block_result {
                 #[allow(clippy::unit_arg)]
                 Ok(x) => {
                     #ret_event;
@@ -424,13 +437,14 @@ fn gen_block<B: ToTokens>(
                     Err(e)
                 }
             };
-            #latency_record
             __tracing_attr_result
         },
         (Some(err_event), None) => quote_spanned!(block.span()=>
             #span
             #[allow(clippy::redundant_closure_call)]
-            let __tracing_attr_result = match (move || #block)() {
+            let __tracing_attr_block_result = (move || #block)();
+            #latency_record
+            let __tracing_attr_result = match __tracing_attr_block_result {
                 #[allow(clippy::unit_arg)]
                 Ok(x) => Ok(x),
                 Err(e) => {
@@ -438,15 +452,14 @@ fn gen_block<B: ToTokens>(
                     Err(e)
                 }
             };
-            #latency_record
             __tracing_attr_result
         ),
         (None, Some(ret_event)) => quote_spanned!(block.span()=>
             #span
             #[allow(clippy::redundant_closure_call)]
             let x = (move || #block)();
-            #ret_event;
             #latency_record
+            #ret_event;
             x
         ),
         (None, None) => quote_spanned!(block.span() =>
